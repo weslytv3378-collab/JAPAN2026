@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>龍貓旅記 (單機離線版)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font: Zen Maru Gothic -->
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Zen Maru Gothic', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .animate-slide-up { animation: slideUp 0.3s ease-out; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .animate-bounce-slow { animation: bounce 4s infinite; }
+        @keyframes bounce { 0%, 100% { transform: translateY(-5%); } 50% { transform: translateY(5%); } }
+    </style>
+</head>
+<body class="bg-[#f4f1ea]">
+    <!-- Main App Container -->
+    <div id="app-container" class="h-screen w-full flex flex-col relative">
+        <!-- Content will be rendered here -->
+    </div>
+
+    <!-- Edit Modal (Hidden by default) -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 items-end sm:items-center justify-center hidden">
+        <div id="modal-content" class="bg-white w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up">
+            <!-- Modal content dynamically injected here -->
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Global State and Constants ---
+        const ALARM_SOUND_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg";
+        const STORAGE_KEY = 'totoro_trip_data_v1';
+        const appContainer = document.getElementById('app-container');
+        const editModal = document.getElementById('edit-modal');
+        const modalContent = document.getElementById('modal-content');
+
+        let state = {
+            view: 'home', // 'home' | 'app'
+            events: [],
+            currentDay: 1,
+            editItem: null,
+            exchangeRate: 0.22,
+            isRateEditing: false,
+            deleteConfirmId: null,
+        };
+
+        // --- FULL INITIAL DATA (Default Data) ---
+        const INITIAL_ITINERARY = [
+          // --- DAY 1 ---
+          {
+            id: 'd1-1', day: 1, time: '06:45', endTime: '07:15', type: 'spot',
+            title: '起床 & 整理行李', location: 'La\'gent Stay 函館站前',
+            description: '06:45 起床，整理行李。',
+            guideTips: '今日重點：完成大行李寄送、八甲田山樹冰、弘前城夜景。',
+            expenses: [], tags: ['準備'], completed: false
+          },
+          {
+            id: 'd1-2', day: 1, time: '07:15', endTime: '08:15', type: 'food',
+            title: '早餐 @ La\'gent Stay', location: 'La\'gent Stay 函館站前 2F「PREGALO」',
+            description: '建議：自製海鮮丼必吃，建議 07:15 前入場。',
+            guideTips: '一定要試試看自製海鮮丼！',
+            expenses: [], tags: ['必吃', '海鮮丼'], completed: false
+          },
+          {
+            id: 'd1-3', day: 1, time: '08:30', endTime: '08:50', type: 'transport',
+            title: '退房 & 前往函館站', location: '函館站',
+            description: '退房，拉著大小行李前往函館站（步行 1 分鐘）。',
+            guideTips: '',
+            expenses: [], tags: ['移動'], completed: false
+          },
+          {
+            id: 'd1-4', day: 1, time: '08:54', endTime: '09:35', type: 'transport',
+            title: '快速 Hakodate Liner -> 新函館北斗', location: '新函館北斗站',
+            description: '搭乘 快速 Hakodate Liner 前往新函館北斗站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd1-5', day: 1, time: '09:35', endTime: '10:37', type: 'transport',
+            title: '新幹線 Hayabusa 16號 -> 新青森', location: '新青森站',
+            description: '轉乘 新幹線 Hayabusa 16號 前往新青森。\n10:37 抵達 新青森站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd1-6', day: 1, time: '10:40', endTime: '10:50', type: 'luggage',
+            title: '🧳 新青森站行李關鍵動作', location: '新青森站 1F 旬味館旁',
+            description: '1. 出站找「黑貓宅急便」或佐川急便。\n2. 將 大行李箱 寄往 1/17 入住的「Richmond Hotel 秋田站前」。\n3. 將 小行李箱 寄放在車站內的 投幣式置物櫃。\n4. 只背著後背包去搭巴士。',
+            guideTips: '極重要！一定要在這裡把大行李寄走，不然八甲田山會很痛苦。',
+            expenses: [{ item: '宅急便', cost: 2500 }, { item: '置物櫃', cost: 500 }],
+            tags: ['極重要', '行李策略'], completed: false
+          },
+          {
+            id: 'd1-7', day: 1, time: '10:50', endTime: '11:10', type: 'food',
+            title: '午餐建議 (買便當帶走)', location: '新青森站',
+            description: '三選一：\n1. 新青森站便當 (旬味館)：津輕海峽海鮮便當。\n2. 吉田屋干貝釜飯：站內熱門款。\n3. 函館海膽便當：若早上在函館站有先買好的話。',
+            guideTips: '買好便當可以在巴士上或山上休息處吃。',
+            expenses: [{ item: '便當', cost: 1200 }], tags: ['午餐'], completed: false
+          },
+          {
+            id: 'd1-8', day: 1, time: '11:10', endTime: '12:15', type: 'transport',
+            title: 'JR巴士「八甲田6號」上山', location: '新青森站東口',
+            description: '於新青森站東口，搭乘 JR巴士「八甲田6號」 上山。',
+            guideTips: '',
+            expenses: [{ item: '巴士', cost: 0 }], tags: ['巴士'], completed: false
+          },
+          {
+            id: 'd1-9', day: 1, time: '12:15', endTime: '15:00', type: 'spot',
+            title: '【景點】八甲田山樹冰', location: '八甲田纜車山頂公園站',
+            description: '搭纜車俯瞰「雪怪」針葉林，場面壯觀。',
+            guideTips: '注意：山頂極冷 (-10度)，務必全副武裝。風大時纜車可能停駛，需留意運行狀況。',
+            expenses: [{ item: '纜車來回', cost: 2000 }], tags: ['必看', '極冷'], completed: false
+          },
+          {
+            id: 'd1-10', day: 1, time: '15:03', endTime: '16:13', type: 'transport',
+            title: 'JR巴士「八甲田5號」下山', location: '八甲田纜車站',
+            description: '搭乘 JR巴士「八甲田5號」 下山。\n16:13 抵達新青森站。',
+            guideTips: '⚠️ 絕對死線！錯過這班就麻煩了。',
+            expenses: [], tags: ['嚴格守時', '巴士'], completed: false
+          },
+          {
+            id: 'd1-11', day: 1, time: '16:13', endTime: '16:30', type: 'luggage',
+            title: '🧳 取出小行李箱', location: '新青森站 置物櫃',
+            description: '從置物櫃取出 小行李箱。',
+            guideTips: '',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd1-12', day: 1, time: '16:38', endTime: '17:16', type: 'transport',
+            title: 'JR奧羽本線 -> 弘前', location: '弘前站',
+            description: '搭乘 JR奧羽本線 前往弘前。\n17:16 抵達弘前站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd1-13', day: 1, time: '17:16', endTime: '17:30', type: 'luggage',
+            title: '🧳 寄放小行李箱', location: '弘前站 置物櫃',
+            description: '將 小行李箱 寄放在弘前站 置物櫃。',
+            guideTips: '',
+            expenses: [{ item: '置物櫃', cost: 500 }], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd1-14', day: 1, time: '17:30', endTime: '17:45', type: 'transport',
+            title: '計程車 -> 弘前公園', location: '弘前公園',
+            description: '搭計程車前往弘前公園。',
+            guideTips: '',
+            expenses: [{ item: '計程車去程', cost: 1200 }], tags: ['計程車'], completed: false
+          },
+          {
+            id: 'd1-15', day: 1, time: '17:45', endTime: '18:30', type: 'spot',
+            title: '【景點】弘前城 冬之櫻點燈', location: '弘前公園 追手門',
+            description: '粉紅燈光打在積雪櫻花樹上，夢幻雪景。',
+            guideTips: '主要觀賞點在追手門附近的護城河畔。',
+            expenses: [], tags: ['夜景'], completed: false
+          },
+          {
+            id: 'd1-16', day: 1, time: '18:40', endTime: '19:00', type: 'transport',
+            title: '計程車 -> 弘前站', location: '弘前站',
+            description: '搭計程車回到弘前站。',
+            guideTips: '',
+            expenses: [{ item: '計程車回程', cost: 1200 }], tags: ['計程車'], completed: false
+          },
+          {
+            id: 'd1-17', day: 1, time: '19:00', endTime: '19:17', type: 'shopping',
+            title: '🧳 取行李 & 買土產', location: '弘前站',
+            description: '1. 取回 小行李箱。\n2. 🎁 弘前土產：Ragnoo 蘋果派、Shiny 蘋果汁、大蒜仙貝。',
+            guideTips: '別忘了取行李！',
+            expenses: [{ item: '土產', cost: 2000 }], tags: ['行李動作', '伴手禮'], completed: false
+          },
+          {
+            id: 'd1-18', day: 1, time: '19:17', endTime: '20:10', type: 'transport',
+            title: 'JR奧羽本線 -> 新青森', location: '新青森站',
+            description: '搭乘 JR奧羽本線 返回新青森。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd1-19', day: 1, time: '20:17', endTime: '21:52', type: 'transport',
+            title: '新幹線 Hayabusa 48號 -> 仙台', location: '仙台站',
+            description: '轉乘 新幹線 Hayabusa 48號 前往仙台。\n21:52 抵達仙台站。',
+            guideTips: '車程較長，可以休息一下。',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd1-20', day: 1, time: '22:10', endTime: '22:30', type: 'hotel',
+            title: 'Check-in 御宿 野乃 仙台', location: '天然溫泉 杜都之湯 御宿 野乃 仙台',
+            description: '搭計程車前往飯店 Check-in。',
+            guideTips: '全館塌塌米，有溫泉可以泡。',
+            expenses: [{ item: '計程車', cost: 1000 }], tags: ['住宿', '溫泉'], completed: false
+          },
+          {
+            id: 'd1-21', day: 1, time: '22:30', endTime: '23:30', type: 'food',
+            title: '晚餐/宵夜建議 (三選一)', location: '仙台站前',
+            description: '1. 善治郎 (站前本店)：極厚炭烤牛舌。\n2. 利久 (站前店)：經典牛舌定食。\n3. ずんだ茶寮：毛豆泥奶昔 (若關門可改買便利店)。',
+            guideTips: '極厚炭烤牛舌是仙台必吃！',
+            expenses: [{ item: '晚餐', cost: 3000 }], tags: ['必吃', '美食'], completed: false
+          },
+          {
+            id: 'd2-1', day: 2, time: '08:30', endTime: '09:00', type: 'hotel',
+            title: '飯店早餐 & Check-out', location: '御宿 野乃 仙台',
+            description: '飯店早餐後 Check-out。\n🧳 行李動作：拉著 小行李箱 移動。',
+            guideTips: '今日重點：修正後的巴士時間讓您在田澤湖站有較多等待時間，建議在車站採買補給品。',
+            expenses: [], tags: ['行李移動'], completed: false
+          },
+          {
+            id: 'd2-2', day: 2, time: '09:44', endTime: '09:58', type: 'transport',
+            title: '新幹線 -> 白石藏王', location: '白石藏王站',
+            description: '從仙台站搭乘 新幹線 前往白石藏王站。\n09:58 抵達白石藏王站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd2-3', day: 2, time: '09:58', endTime: '10:05', type: 'luggage',
+            title: '🧳 寄放小行李箱', location: '白石藏王站 置物櫃',
+            description: '將 小行李箱 寄放在車站 置物櫃。',
+            guideTips: '',
+            expenses: [{ item: '置物櫃', cost: 500 }], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd2-4', day: 2, time: '10:05', endTime: '10:30', type: 'transport',
+            title: '計程車 -> 藏王狐狸村', location: '宮城藏王狐狸村',
+            description: '搭乘 計程車 前往藏王狐狸村 (約 4,500 日圓)。',
+            guideTips: '如果有遇到其他遊客，可以考慮共乘省錢。',
+            expenses: [{ item: '計程車', cost: 4500 }], tags: ['計程車'], completed: false
+          },
+          {
+            id: 'd2-5', day: 2, time: '10:30', endTime: '12:00', type: 'spot',
+            title: '【景點】藏王狐狸村', location: '宮城藏王狐狸村',
+            description: '冬季狐狸毛色蓬鬆。務必參加 11:00 的抱狐狸體驗。',
+            guideTips: '注意手機和隨身物品，狐狸會咬垂墜物。',
+            expenses: [{ item: '門票', cost: 1000 }, { item: '抱狐狸', cost: 600 }], tags: ['必去'], completed: false
+          },
+          {
+            id: 'd2-6', day: 2, time: '12:10', endTime: '12:46', type: 'transport',
+            title: '巴士 -> 白石藏王站', location: '白石藏王站',
+            description: '搭乘 巴士 返回白石藏王站。\n12:46 抵達白石藏王站。',
+            guideTips: '',
+            expenses: [{ item: '巴士', cost: 800 }], tags: ['巴士'], completed: false
+          },
+          {
+            id: 'd2-7', day: 2, time: '12:46', endTime: '13:50', type: 'food',
+            title: '午餐建議 (三選一)', location: '白石藏王站',
+            description: '1. 白石藏王站內輕食：烏龍麵/蕎麥麵。\n2. 便利商店 (NewDays)：簡單飯糰。\n3. 車站附近小店：若有開可嘗試溫麵。\n(這裡有約 1 小時空檔，請取回小行李箱)。',
+            guideTips: '',
+            expenses: [{ item: '午餐', cost: 1000 }], tags: ['午餐'], completed: false
+          },
+          {
+            id: 'd2-8', day: 2, time: '13:50', endTime: '13:51', type: 'luggage',
+            title: '🧳 取回小行李箱', location: '白石藏王站 置物櫃',
+            description: '請取回小行李箱，準備上車。',
+            guideTips: '',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd2-9', day: 2, time: '13:51', endTime: '14:04', type: 'transport',
+            title: '新幹線 -> 仙台站', location: '仙台站',
+            description: '搭乘 新幹線 前往仙台站。\n🧳 行李動作：帶著 小行李箱 上車。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd2-10', day: 2, time: '14:04', endTime: '14:34', type: 'shopping',
+            title: '仙台轉乘 & 買土產', location: '仙台站',
+            description: '抵達仙台站，轉乘下一班車。\n🎁 【仙台土產】：萩之月、喜久福、伊達牛舌。',
+            guideTips: '利用轉乘空檔買些車上吃的或伴手禮。',
+            expenses: [{ item: '土產', cost: 2000 }], tags: ['伴手禮'], completed: false
+          },
+          {
+            id: 'd2-11', day: 2, time: '14:34', endTime: '15:44', type: 'transport',
+            title: '新幹線 Komachi 23號 -> 田澤湖', location: '田澤湖站',
+            description: '搭乘 新幹線 Komachi 23號 前往田澤湖站。\n15:44 抵達 田澤湖站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd2-12', day: 2, time: '15:44', endTime: '16:35', type: 'shopping',
+            title: '⚠️ 等待與補給 (50分鐘)', location: '田澤湖站',
+            description: '下一班巴士是 16:35。您有約 50 分鐘。\n行動：在車站內的便利商店買好晚上在溫泉喝的酒水、零食（山上沒有商店）。亦可逛逛車站的觀光案內所。',
+            guideTips: '山上真的沒有便利商店，請務必在此補給！',
+            expenses: [{ item: '酒水零食', cost: 1500 }], tags: ['重要補給'], completed: false
+          },
+          {
+            id: 'd2-13', day: 2, time: '16:35', endTime: '17:20', type: 'transport',
+            title: '巴士「乳頭線」-> 休暇村', location: '休暇村前站',
+            description: '【巴士時刻修正】 搭乘 羽後交通巴士「乳頭線」 (往乳頭蟹場溫泉方向)。\n🧳 行李動作：把 小行李箱 帶上巴士。\n17:20 抵達 休暇村前 (Kyukamura-mae) 站。',
+            guideTips: '',
+            expenses: [{ item: '巴士', cost: 840 }], tags: ['巴士', '行李移動'], completed: false
+          },
+          {
+            id: 'd2-14', day: 2, time: '17:30', endTime: '18:30', type: 'hotel',
+            title: 'Check-in 休暇村 乳頭溫泉鄉', location: '休暇村 乳頭温泉郷',
+            description: 'Check-in 休暇村 乳頭溫泉鄉。',
+            guideTips: '被櫸木林包圍的雪見溫泉。',
+            expenses: [{ item: '住宿', cost: 15000 }], tags: ['住宿', '溫泉'], completed: false
+          },
+          {
+            id: 'd2-15', day: 2, time: '18:30', endTime: '20:00', type: 'food',
+            title: '晚餐：飯店自助百匯', location: '休暇村 乳頭温泉郷',
+            description: '飯店自助百匯：享用秋田米棒鍋、山藥鍋與田澤湖在地料理。',
+            guideTips: '米棒鍋是秋田名物！',
+            expenses: [], tags: ['晚餐', '必吃'], completed: false
+          },
+          {
+            id: 'd2-16', day: 2, time: '21:00', endTime: '22:00', type: 'food',
+            title: '宵夜建議 (三選一)', location: '休暇村 乳頭温泉郷',
+            description: '1. 自備仙台土產：萩之月。\n2. 飯店販賣機：當地牛奶或啤酒。\n3. 飯店賣店：購買秋田零食。',
+            guideTips: '享受秘湯之夜。',
+            expenses: [{ item: '牛奶', cost: 200 }], tags: ['宵夜'], completed: false
+          },
+          {
+            id: 'd3-1', day: 3, time: '09:00', endTime: '09:15', type: 'hotel',
+            title: 'Check-out & 寄行李', location: '休暇村 乳頭温泉郷',
+            description: '飯店 Check-out。\n🧳 行李動作：將 小行李箱 寄放在 休暇村櫃台。背背包輕裝出發。',
+            guideTips: '今日重點：依據巴士時刻表，您中午有充裕時間在車站吃午餐，下午搭乘唯一的環湖觀光巴士。',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd3-2', day: 3, time: '09:15', endTime: '10:15', type: 'spot',
+            title: '【體驗】妙乃湯 (日歸入浴)', location: '妙乃湯',
+            description: '交通：從休暇村步行 10 分鐘。\n介紹：精緻的混浴露天風呂 (可圍毛巾)，看得到瀑布與溪流。',
+            guideTips: '混浴可圍毛巾，女生也可安心。',
+            expenses: [{ item: '入浴料', cost: 800 }], tags: ['泡湯'], completed: false
+          },
+          {
+            id: 'd3-3', day: 3, time: '10:15', endTime: '10:45', type: 'transport',
+            title: '雪地步行 -> 蟹場溫泉', location: '乳頭溫泉鄉',
+            description: '步行前往蟹場溫泉 (雪地步行約 25-30 分鐘)。',
+            guideTips: '享受雪中漫步的樂趣，注意腳下防滑。',
+            expenses: [], tags: ['步行'], completed: false
+          },
+          {
+            id: 'd3-4', day: 3, time: '10:45', endTime: '11:45', type: 'spot',
+            title: '【體驗】蟹場溫泉 (日歸入浴)', location: '蟹場温泉',
+            description: '介紹：需走出戶外穿過雪徑才能抵達的野趣露天溫泉。',
+            guideTips: '非常原始自然的環境，四周都是森林。',
+            expenses: [{ item: '入浴料', cost: 800 }], tags: ['泡湯'], completed: false
+          },
+          {
+            id: 'd3-5', day: 3, time: '11:45', endTime: '12:15', type: 'transport',
+            title: '步行回休暇村', location: '休暇村 乳頭温泉郷',
+            description: '步行走回休暇村。',
+            guideTips: '',
+            expenses: [], tags: ['步行'], completed: false
+          },
+          {
+            id: 'd3-6', day: 3, time: '12:15', endTime: '13:30', type: 'spot',
+            title: '休息 & 領取行李', location: '休暇村 乳頭温泉郷',
+            description: '在休暇村大廳休息、整理儀容、領取行李。\n🧳 行李動作：領回 小行李箱。',
+            guideTips: '準備下山囉。',
+            expenses: [], tags: ['休息', '行李動作'], completed: false
+          },
+          {
+            id: 'd3-7', day: 3, time: '13:43', endTime: '14:28', type: 'transport',
+            title: '巴士 -> 田澤湖站', location: '田澤湖站',
+            description: '【巴士時刻修正】 於「休暇村前」搭乘 羽後交通巴士 (往田澤湖站)。\n14:28 抵達 田澤湖站。',
+            guideTips: '',
+            expenses: [{ item: '巴士', cost: 840 }], tags: ['巴士'], completed: false
+          },
+          {
+            id: 'd3-8', day: 3, time: '14:28', endTime: '14:30', type: 'luggage',
+            title: '🧳 寄放小行李箱', location: '田澤湖站 置物櫃',
+            description: '將 小行李箱 寄放在田澤湖站 置物櫃。',
+            guideTips: '',
+            expenses: [{ item: '置物櫃', cost: 500 }], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd3-9', day: 3, time: '14:30', endTime: '15:15', type: 'food',
+            title: '午餐建議 (三選一)', location: '田澤湖站前',
+            description: '1. 駅前食堂：比內地雞親子丼、稻庭烏龍麵。\n2. 蕎麥麵五郎 (そば五郎)：位於車站旁的市集內。\n3. 便利商店：若餐廳客滿的備案。',
+            guideTips: '比內地雞是秋田名產，肉質有嚼勁。',
+            expenses: [{ item: '午餐', cost: 1500 }], tags: ['午餐'], completed: false
+          },
+          {
+            id: 'd3-10', day: 3, time: '15:25', endTime: '16:56', type: 'spot',
+            title: '田澤湖一周線 觀光巴士', location: '田澤湖',
+            description: '【巴士時刻修正】 搭乘 「田澤湖一周線」 觀光巴士。\n這班車是專為觀光設計的，司機會在景點停車等人。\n15:55 抵達【潟尻 (辰子像)】：停留 20 分鐘拍照 (16:15 發車)。\n16:25 抵達【御座之石神社】：停留 10 分鐘參拜 (16:35 發車)。\n16:56 巴士回到 田澤湖站。',
+            guideTips: '不用自己找交通工具，巴士會等你，非常方便！',
+            expenses: [{ item: '觀光巴士', cost: 1210 }], tags: ['必去', '觀光巴士'], completed: false
+          },
+          {
+            id: 'd3-11', day: 3, time: '16:56', endTime: '17:34', type: 'luggage',
+            title: '🧳 取回小行李箱', location: '田澤湖站 置物櫃',
+            description: '從置物櫃取回 小行李箱。\n(備註：因巴士 16:56 才到，趕 17:12 的車有點趕，建議搭 17:34 較從容)',
+            guideTips: '休息一下準備搭新幹線。',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd3-12', day: 3, time: '17:34', endTime: '18:14', type: 'transport',
+            title: '新幹線 Komachi 34號 -> 盛岡', location: '盛岡站',
+            description: '搭乘 新幹線 Komachi 34號 前往盛岡站。\n18:14 抵達盛岡站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd3-13', day: 3, time: '18:14', endTime: '18:30', type: 'luggage',
+            title: '🧳 寄放小行李箱', location: '盛岡站 置物櫃',
+            description: '將 小行李箱 寄放盛岡站 置物櫃。',
+            guideTips: '',
+            expenses: [{ item: '置物櫃', cost: 500 }], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd3-14', day: 3, time: '18:30', endTime: '19:30', type: 'food',
+            title: '晚餐建議：盛岡冷麵', location: '盛岡站前',
+            description: '三選一：\n1. ぴょんぴょん舎 (盛岡站前店)：必吃盛岡冷麵+燒肉。\n2. 盛樓閣：就在車站對面，高級冷麵名店。\n3. 食道園：冷麵發祥店，湯頭獨特。\n🎁 【盛岡/秋田土產】：南部仙貝、戶田久冷麵、金萬。',
+            guideTips: '盛岡冷麵口感非常Q彈，搭配燒肉絕配！',
+            expenses: [{ item: '晚餐', cost: 3000 }, { item: '土產', cost: 1500 }], tags: ['必吃', '冷麵'], completed: false
+          },
+          {
+            id: 'd3-15', day: 3, time: '19:30', endTime: '19:51', type: 'luggage',
+            title: '🧳 取行李 & 前往月台', location: '盛岡站 置物櫃',
+            description: '上車前務必取回 小行李箱。',
+            guideTips: '',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd3-16', day: 3, time: '19:51', endTime: '20:41', type: 'transport',
+            title: '新幹線 Komachi 35號 -> 秋田', location: '秋田站',
+            description: '搭乘 新幹線 Komachi 35號 前往秋田。\n20:41 抵達秋田站。',
+            guideTips: '',
+            expenses: [], tags: ['JR Pass'], completed: false
+          },
+          {
+            id: 'd3-17', day: 3, time: '20:50', endTime: '21:30', type: 'hotel',
+            title: 'Check-in & 行李大會師', location: 'Richmond Hotel 秋田站前',
+            description: '前往飯店 Check-in。\n🧳 【行李大會師】：向櫃台領取 Day 1 寄來的 大行李箱。',
+            guideTips: '終於和大行李箱會合了！',
+            expenses: [{ item: '住宿', cost: 8000 }], tags: ['住宿', '行李會合'], completed: false
+          },
+          {
+            id: 'd3-18', day: 3, time: '21:30', endTime: '22:30', type: 'food',
+            title: '宵夜建議 (三選一)', location: '秋田站前',
+            description: '1. 末廣拉麵本舖 (站前分店)：深色醬油湯底，蔥花無限加。\n2. 秋田牛玄亭：高品質燒肉 (需確認營業時間)。\n3. 無限堂：稻庭烏龍麵 (若想吃消夜場)。',
+            guideTips: '末廣拉麵是當地人的深夜食堂。',
+            expenses: [{ item: '宵夜', cost: 1200 }], tags: ['宵夜', '拉麵'], completed: false
+          },
+          {
+            id: 'd4-1', day: 4, time: '09:00', endTime: '09:15', type: 'luggage',
+            title: 'Check-out & 寄放所有行李', location: 'Richmond Hotel 秋田站前',
+            description: '飯店 Check-out。\n🧳 行李動作：將 大行李箱 + 小行李箱 全數寄放在 Richmond Hotel 櫃台 (省錢且方便)。',
+            guideTips: '今日重點：最後觀光與機場採買，確保準時搭上利木津巴士。',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd4-2', day: 4, time: '09:15', endTime: '11:00', type: 'spot',
+            title: '【景點】秋田市區觀光', location: '千秋公園',
+            description: '1. 千秋公園 (久保田城跡)：雪景優美，可俯瞰市區。\n2. 秋田縣立美術館：安藤忠雄建築，館藏藤田嗣治壁畫。\n3. 民俗藝能傳承館 (Neburi Nagashi Kan)：體驗撐竿燈祭典氣氛。',
+            guideTips: '千秋公園的雪景非常漂亮，美術館的建築也值得一看。',
+            expenses: [{ item: '門票', cost: 500 }], tags: ['觀光'], completed: false
+          },
+          {
+            id: 'd4-3', day: 4, time: '11:00', endTime: '11:30', type: 'luggage',
+            title: '🧳 領取行李 & 前往巴士站', location: 'Richmond Hotel -> 西口巴士站',
+            description: '回飯店領取所有行李，推去西口巴士站。',
+            guideTips: '預留時間推行李去車站。',
+            expenses: [], tags: ['行李動作'], completed: false
+          },
+          {
+            id: 'd4-4', day: 4, time: '11:30', endTime: '12:10', type: 'transport',
+            title: '利木津巴士 -> 秋田機場', location: '秋田站西口',
+            description: '搭乘 機場利木津巴士 前往秋田機場。\n12:10 抵達秋田機場。',
+            guideTips: '準時出發！',
+            expenses: [{ item: '巴士', cost: 950 }], tags: ['去機場'], completed: false
+          },
+          {
+            id: 'd4-5', day: 4, time: '12:20', endTime: '13:30', type: 'shopping',
+            title: '午餐/最後採買建議', location: '秋田機場',
+            description: '三選一：\n1. 秋田比內地雞屋：滑嫩親子丼。\n2. 佐藤養助：必吃稻庭烏龍麵。\n3. 機場餐廳：最後一次米棒鍋。\n🎁 【機場土產】：煙燻蘿蔔漬 (いぶりがっこ)、黃金奶油麻糬 (Butter Mochi)、秋田犬布偶。',
+            guideTips: '把剩下的日幣花光吧！',
+            expenses: [{ item: '午餐', cost: 1500 }, { item: '伴手禮', cost: 3000 }], tags: ['午餐', '伴手禮'], completed: false
+          },
+          {
+            id: 'd4-6', day: 4, time: '14:00', endTime: '16:00', type: 'transport',
+            title: '搭機返家', location: '秋田機場',
+            description: '搭機返家。旅途圓滿結束！',
+            guideTips: 'Safe Flight!',
+            expenses: [], tags: ['回家'], completed: false
+          },
+        ];
+
+        // --- Icon Helpers (Inline SVG) ---
+        const iconSVG = (name, size = 18, className = '') => {
+            const icons = {
+                MapPin: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
+                Clock: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+                Snowflake: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M2 12h20"/><path d="m13.2 2a2 2 0 1 0-2.4 0"/><path d="M12 2v20"/><path d="M4.9 4.9l8.4 8.4m-4.2 0l8.4 8.4m-8.4-4.2l8.4-8.4m-4.2 4.2l8.4-8.4"/><path d="m4.9 19.1 8.4-8.4m-4.2 0 8.4-8.4m-8.4 4.2 8.4 8.4m-4.2-4.2 8.4 8.4"/></svg>`,
+                Utensils: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M9 19H7a4 4 0 0 0-4 4V23"/><path d="M15 2v7a2 2 0 0 1-2 2h-4"/><path d="M15 19h2a4 4 0 0 0 4-4V23"/><path d="M17 2v7a2 2 0 0 0 2-2V2"/></svg>`,
+                Train: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m2 8 4 6 4-2 4 4 4-2 4 6"/><path d="M7 21a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7z"/><path d="M7 15h10"/><path d="M10 3h4"/><path d="M12 3v2"/></svg>`,
+                BedDouble: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M18 20V8a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v12M2 20h20M2 14h20M13 14h4M7 14h-3M16 20v-2M8 20v-2"/></svg>`,
+                Camera: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`,
+                ShoppingBag: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`,
+                Calculator: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M8 7h8"/><path d="M8 11h2v2H8z"/><path d="M11 11h2v2h-2z"/><path d="M14 11h2v2h-2z"/><path d="M8 14h2v2H8z"/><path d="M11 14h2v2h-2z"/><path d="M14 14h2v2h-2z"/><path d="M8 17h2v2H8z"/><path d="M11 17h2v2h-2z"/><path d="M14 17h2v2h-2z"/></svg>`,
+                Plus: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M12 5v14M5 12h14"/></svg>`,
+                ArrowRight: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M5 12h14M12 5l7 7-7 7"/></svg>`,
+                Navigation: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>`,
+                Home: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+                Info: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+                X: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M18 6L6 18M6 6l12 12"/></svg>`,
+                Edit2: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M17 3a2.828 2.828 1 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>`,
+                Trash2: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`,
+                Calendar: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M8 2v4M16 2v4M21 7H3M4 5h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>`,
+            };
+            return icons[name] || '';
+        };
+
+        const getTypeColor = (type) => {
+            switch (type) {
+                case 'food': return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', stripe: 'bg-orange-600' };
+                case 'transport': return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', stripe: 'bg-blue-600' };
+                case 'spot': return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-200', stripe: 'bg-green-600' };
+                case 'hotel': return { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', stripe: 'bg-purple-600' };
+                case 'luggage': return { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', stripe: 'bg-yellow-600' };
+                case 'shopping': return { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-200', stripe: 'bg-pink-600' };
+                default: return { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200', stripe: 'bg-gray-600' };
+            }
+        };
+
+        const getTypeIconName = (type) => {
+            switch (type) {
+                case 'food': return 'Utensils';
+                case 'transport': return 'Train';
+                case 'spot': return 'Camera';
+                case 'hotel': return 'BedDouble';
+                case 'luggage': return 'ShoppingBag';
+                case 'shopping': return 'ShoppingBag';
+                default: return 'Clock';
+            }
+        };
+
+        const formatMoney = (jpy) => `¥${jpy.toLocaleString()}`;
+        const formatTWD = (jpy) => `NT$${Math.round(jpy * state.exchangeRate).toLocaleString()}`;
+
+        const openNavigation = (loc) => {
+            if (!loc) return;
+            const query = encodeURIComponent(loc);
+            window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+        };
+
+        // --- Data Management (LocalStorage) ---
+
+        const loadData = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    state.events = JSON.parse(saved);
+                } catch (e) {
+                    console.error("Parse error", e);
+                    state.events = INITIAL_ITINERARY;
+                }
+            } else {
+                state.events = INITIAL_ITINERARY;
+            }
+            // Sort
+            state.events.sort((a, b) => {
+                if (a.day !== b.day) return a.day - b.day;
+                return String(a.time).localeCompare(String(b.time));
+            });
+        };
+
+        const saveToStorage = () => {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state.events));
+        };
+
+        // --- CRUD Handlers ---
+
+        const updateItem = (updatedItem) => {
+            // Recalculate cost
+            const newTotalCost = (updatedItem.expenses || []).reduce((sum, e) => sum + (e.cost || 0), 0);
+            const itemToSave = { ...updatedItem, cost: newTotalCost };
+
+            const idx = state.events.findIndex(e => e.id === itemToSave.id);
+            if (idx !== -1) {
+                state.events[idx] = itemToSave;
+                saveToStorage();
+                state.editItem = null;
+                render();
+            }
+        };
+
+        const deleteItem = (id) => {
+            state.events = state.events.filter(e => e.id !== id);
+            saveToStorage();
+            state.editItem = null;
+            state.deleteConfirmId = null;
+            render();
+        };
+
+        const addItem = () => {
+            const newId = `new-${Date.now()}`;
+            const newItem = {
+                id: newId,
+                day: state.currentDay,
+                time: '12:00',
+                endTime: '13:00',
+                type: 'spot',
+                title: '新行程',
+                location: '請輸入地點',
+                description: '請輸入行程細節',
+                guideTips: '',
+                expenses: [],
+                cost: 0,
+                tags: [],
+                completed: false
+            };
+            state.events.push(newItem);
+            saveToStorage();
+            state.editItem = newItem;
+            render();
+        };
+
+        // --- UI Rendering Functions ---
+
+        const renderHome = () => {
+            appContainer.className = "h-screen w-full bg-[#f4f1ea] flex flex-col items-center justify-center relative overflow-hidden font-sans";
+            appContainer.innerHTML = `
+                <div class="absolute top-[-50px] right-[-50px] w-64 h-64 bg-green-200/30 rounded-full blur-3xl"></div>
+                <div class="absolute bottom-[-50px] left-[-50px] w-64 h-64 bg-orange-200/30 rounded-full blur-3xl"></div>
+
+                <div class="z-10 text-center space-y-6 p-8">
+                    <div class="inline-block p-4 bg-white rounded-full shadow-xl mb-4 animate-bounce-slow">
+                        <div class="text-6xl">🌱</div>
+                    </div>
+                    <h1 class="text-4xl font-bold text-[#5c6b54] tracking-tight">龍貓旅記</h1>
+                    <p class="text-slate-500 text-lg">東北雪見之旅 ・ 2026/1/15</p>
+                    
+                    <div class="bg-white/60 backdrop-blur-md rounded-2xl p-6 shadow-lg border border-white/50 w-64 mx-auto">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-slate-400 uppercase">當前天氣</span>
+                            ${iconSVG('MapPin', 14, 'text-slate-400')}
+                        </div>
+                        <div class="flex items-center justify-center gap-4">
+                             <span class="text-blue-400 w-12 h-12">${iconSVG('Snowflake', 48)}</span>
+                             <div class="text-left">
+                                 <div class="text-3xl font-bold text-slate-700">-2°C</div>
+                                 <div class="text-xs text-slate-500">青森市 ・ 大雪</div>
+                             </div>
+                        </div>
+                    </div>
+
+                    <button id="start-trip-btn" class="bg-[#6b8c72] hover:bg-[#5a7660] text-white text-lg font-bold py-3 px-10 rounded-full shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2 mx-auto">
+                        開始旅程 ${iconSVG('ArrowRight', 20)}
+                    </button>
+                </div>
+            `;
+            document.getElementById('start-trip-btn').onclick = () => {
+                state.view = 'app';
+                render();
+            };
+        };
+        
+        const createEventCard = (item) => {
+            const colors = getTypeColor(item.type);
+            const typeIcon = getTypeIconName(item.type);
+            const totalCost = (item.expenses || []).reduce((sum, e) => sum + (e.cost || 0), 0);
+
+            const card = document.createElement('div');
+            card.className = "flex gap-3 relative group";
+            card.innerHTML = `
+                <!-- Time Node -->
+                <div class="flex-none w-14 pt-1 flex flex-col items-center z-10 bg-[#f4f1ea]">
+                   <span class="text-xs font-bold text-slate-600 font-mono">${item.time}</span>
+                   <div class="mt-1 w-3 h-3 rounded-full border-2 border-white shadow-sm ${item.completed ? 'bg-slate-400' : 'bg-[#e67e22]'}"></div>
+                   ${item.endTime ? `<span class="text-[10px] text-slate-400 mt-auto mb-1 opacity-70">${item.endTime}</span>` : ''}
+                </div>
+
+                <!-- Card -->
+                <div data-id="${item.id}" class="flex-1 rounded-2xl p-3 shadow-md border border-slate-100 bg-white relative overflow-hidden active:scale-[0.98] transition-all cursor-pointer hover:shadow-lg">
+                    <div class="absolute top-0 left-0 w-1.5 h-full ${colors.stripe}"></div>
+
+                    <!-- Header -->
+                    <div class="flex justify-between items-start mb-2 pl-2">
+                        <div class="flex items-center gap-2">
+                             <div class="p-1.5 rounded-full ${colors.bg} ${colors.text}">
+                                ${iconSVG(typeIcon, 18)}
+                             </div>
+                             <h3 class="font-bold text-slate-800 leading-tight text-base">${item.title}</h3>
+                        </div>
+                        ${item.type !== 'transport' ? '<div class="flex items-center gap-1 bg-white/80 px-2 py-1 rounded-full text-xs font-medium shadow-sm text-slate-600"><span class="text-blue-400">' + iconSVG('Snowflake', 20) + '</span><span>-5°C 大雪</span></div>' : ''}
+                    </div>
+
+                    <!-- Details -->
+                    <div class="pl-2 space-y-2">
+                         ${item.location ? `
+                             <div data-loc="${item.location}" class="location-link flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline decoration-blue-300 underline-offset-2 cursor-pointer w-fit">
+                                 ${iconSVG('MapPin', 12)} ${item.location}
+                             </div>
+                         ` : ''}
+                         
+                         ${item.description ? `<p class="text-sm text-slate-600 whitespace-pre-line leading-relaxed">${item.description.replace(/\n/g, '<br>')}</p>` : ''}
+
+                         ${item.guideTips ? `
+                             <div class="bg-yellow-50/80 p-2 rounded text-xs text-yellow-900 border-l-2 border-yellow-400 mt-2">
+                                 <span class="font-bold mr-1">💡 導遊說:</span> ${item.guideTips}
+                             </div>
+                         ` : ''}
+
+                         <!-- Cost Pill -->
+                         <div class="flex justify-between items-center pt-2 mt-1 border-t border-dashed border-slate-100">
+                             <div class="flex gap-1 flex-wrap">
+                                 ${(item.tags || []).map(tag => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">${tag}</span>`).join('')}
+                             </div>
+                             ${totalCost > 0 ? `<div class="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">${formatMoney(totalCost)}</div>` : ''}
+                         </div>
+                    </div>
+                    
+                    <!-- Navigation FAB on Card -->
+                    <button data-loc="${item.location}" class="nav-fab absolute bottom-3 right-3 bg-[#6b8c72]/10 hover:bg-[#6b8c72] text-[#6b8c72] hover:text-white p-2 rounded-full transition-all">
+                        ${iconSVG('Navigation', 16)}
+                    </button>
+                </div>
+            `;
+            
+            card.querySelector(`[data-id="${item.id}"]`).onclick = () => {
+                state.editItem = JSON.parse(JSON.stringify(item)); // Deep clone
+                renderEditModal();
+            };
+
+            const locLinks = card.querySelectorAll('.location-link');
+            locLinks.forEach(link => {
+                link.onclick = (e) => { e.stopPropagation(); openNavigation(e.currentTarget.dataset.loc); };
+            });
+
+            const navFabs = card.querySelectorAll('.nav-fab');
+            navFabs.forEach(fab => {
+                fab.onclick = (e) => { e.stopPropagation(); openNavigation(e.currentTarget.dataset.loc); };
+            });
+
+            return card;
+        };
+
+        const renderApp = () => {
+            const dayEvents = state.events.filter(e => e.day === state.currentDay);
+            const dayCostJPY = dayEvents.reduce((sum, e) => sum + (e.cost || 0), 0);
+            
+            appContainer.className = "h-screen w-full bg-[#f4f1ea] font-sans text-slate-700 overflow-hidden flex flex-col relative";
+            appContainer.innerHTML = `
+                <!-- Header -->
+                <header class="flex-none bg-[#6b8c72] text-white pt-4 pb-2 px-4 shadow-lg z-20 relative">
+                    <div class="flex justify-between items-center mb-3">
+                        <div class="flex items-center gap-3">
+                            <button id="home-btn" class="bg-white/20 p-1.5 rounded-full hover:bg-white/30 transition-colors">
+                                ${iconSVG('Home', 18)}
+                            </button>
+                            <div>
+                                <h1 class="text-lg font-bold leading-none">Day ${state.currentDay}</h1>
+                                <p class="text-xs text-white/80 opacity-90 mt-0.5">
+                                    ${state.currentDay === 1 ? "樹冰與夜櫻" : state.currentDay === 2 ? "狐狸與秘湯" : state.currentDay === 3 ? "雙溫泉與冷麵" : "秋田巡禮"}
+                                </p>
+                            </div>
+                        </div>
+                        <div id="budget-pill" class="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-right cursor-pointer">
+                            <div class="text-[10px] text-white/70 uppercase">每日預算</div>
+                            <div class="font-bold text-sm leading-none mb-0.5">${formatMoney(dayCostJPY)}</div>
+                            <div class="text-[10px] text-yellow-200 leading-none">${formatTWD(dayCostJPY)}</div>
+                        </div>
+                    </div>
+
+                    <!-- Currency Input -->
+                    <div id="rate-editor" class="mb-2 flex items-center gap-2 justify-end text-xs bg-[#5a7660] p-2 rounded-lg transition-all ${state.isRateEditing ? '' : 'hidden'}">
+                        <span>匯率設定:</span>
+                        <input id="exchange-rate-input" type="number" value="${state.exchangeRate}" step="0.001" class="w-16 text-black px-1 rounded text-center"/>
+                    </div>
+
+                    <!-- Day Switcher -->
+                    <div id="day-switcher" class="flex gap-2 mt-2 overflow-x-auto pb-1 no-scrollbar">
+                        <!-- Buttons dynamically injected -->
+                    </div>
+                </header>
+
+                <!-- Main List -->
+                <main id="main-list" class="flex-1 overflow-y-auto p-4 pb-24 relative">
+                    <div class="absolute left-[26px] top-0 bottom-0 w-0.5 bg-slate-300/50 z-0"></div>
+                    <div id="event-list" class="space-y-6 relative z-10">
+                        <!-- Event cards dynamically injected -->
+                    </div>
+                </main>
+
+                <!-- Floating Action Button -->
+                <button id="add-btn" class="absolute bottom-6 right-6 w-14 h-14 bg-[#e67e22] text-white rounded-full shadow-xl flex items-center justify-center hover:bg-[#d35400] active:scale-90 z-30 transition-transform">
+                    ${iconSVG('Plus', 28)}
+                </button>
+            `;
+
+            // --- Attach Event Listeners ---
+            document.getElementById('home-btn').onclick = () => {
+                state.view = 'home';
+                render();
+            };
+            
+            document.getElementById('budget-pill').onclick = () => {
+                state.isRateEditing = !state.isRateEditing;
+                render();
+            };
+
+            const rateInput = document.getElementById('exchange-rate-input');
+            if (rateInput) {
+                rateInput.onchange = (e) => {
+                    state.exchangeRate = parseFloat(e.target.value) || 0;
+                    render();
+                };
+            }
+            
+            document.getElementById('add-btn').onclick = addItem;
+
+            // Render Day Switcher Buttons
+            const daySwitcher = document.getElementById('day-switcher');
+            [1, 2, 3, 4].forEach(day => {
+                const btn = document.createElement('button');
+                btn.className = `flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm flex items-center gap-1 ${state.currentDay === day ? 'bg-[#e8dec6] text-[#5c4b35] scale-105 ring-2 ring-white/50' : 'bg-white/20 text-white hover:bg-white/30'}`;
+                btn.innerHTML = `${iconSVG('Calendar', 12)} Day ${day}`;
+                btn.onclick = () => {
+                    state.currentDay = day;
+                    // Reset scroll to top when changing day
+                    document.getElementById('main-list').scrollTop = 0;
+                    render();
+                };
+                daySwitcher.appendChild(btn);
+            });
+
+            // Render Event Cards
+            const eventList = document.getElementById('event-list');
+            if (dayEvents.length === 0) {
+                eventList.innerHTML = `<div class="text-center py-20 opacity-40">尚無行程，請點擊右下角新增</div>`;
+            } else {
+                dayEvents.forEach(item => {
+                    eventList.appendChild(createEventCard(item));
+                });
+            }
+        };
+
+        const renderEditModal = () => {
+            if (!state.editItem) {
+                editModal.classList.add('hidden');
+                modalContent.innerHTML = '';
+                state.deleteConfirmId = null;
+                return;
+            }
+
+            editModal.classList.remove('hidden');
+
+            const item = state.editItem;
+            const typeOptions = [
+                { id: 'spot', name: '景點' }, { id: 'food', name: '美食' }, { id: 'transport', name: '交通' },
+                { id: 'hotel', name: '住宿' }, { id: 'luggage', name: '行李' }, { id: 'shopping', name: '購物' }
+            ];
+
+            const expensesHtml = (item.expenses || []).map((ex, idx) => `
+                <div class="flex justify-between items-center text-sm border-b border-dashed pb-1 expense-item" data-idx="${idx}">
+                    <span>${ex.item}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono">¥${ex.cost}</span>
+                        <button type="button" class="remove-expense-btn text-red-400 hover:text-red-600">
+                            ${iconSVG('X', 12)}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            const total = (item.expenses || []).reduce((sum, e) => sum + (e.cost || 0), 0);
+
+            modalContent.innerHTML = `
+                <!-- Modal Header -->
+                <div class="p-4 bg-[#f4f1ea] border-b flex justify-between items-center flex-none">
+                    <h2 class="font-bold text-lg flex items-center gap-2 text-slate-700">
+                        ${iconSVG('Edit2', 18)} 編輯行程
+                    </h2>
+                    <button id="modal-close-btn" class="p-2 hover:bg-slate-200 rounded-full transition-colors">${iconSVG('X', 20, 'text-slate-500')}</button>
+                </div>
+                
+                <!-- Modal Body -->
+                <div class="p-4 overflow-y-auto flex-1 space-y-5">
+                    
+                    <!-- Day/Time/Title -->
+                    <div class="grid grid-cols-5 gap-3">
+                        <div class="col-span-1">
+                            <label class="text-xs text-slate-400 block mb-1">Day</label>
+                            <input id="edit-day-input" type="number" value="${item.day}" class="w-full bg-slate-50 border rounded-lg p-2 font-mono text-sm" />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-xs text-slate-400 block mb-1">時間</label>
+                            <input id="edit-time-input" type="time" value="${item.time}" class="w-full bg-slate-50 border rounded-lg p-2 font-mono text-sm" />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-xs text-slate-400 block mb-1">結束</label>
+                            <input id="edit-endtime-input" type="time" value="${item.endTime || ''}" class="w-full bg-slate-50 border rounded-lg p-2 font-mono text-sm" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">標題</label>
+                        <input id="edit-title-input" type="text" value="${item.title}" class="w-full bg-slate-50 border rounded-lg p-2 text-sm font-bold" />
+                    </div>
+
+                    <!-- Location & Navigation -->
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">地點 (導航用)</label>
+                        <div class="flex gap-2">
+                             <input id="edit-location-input" type="text" value="${item.location}" class="flex-1 bg-slate-50 border rounded-lg p-2 text-sm" placeholder="輸入地點名稱" />
+                             <button id="modal-nav-btn" type="button" class="bg-blue-100 text-blue-600 p-2 rounded-lg hover:bg-blue-200">${iconSVG('Navigation', 18)}</button>
+                        </div>
+                    </div>
+
+                    <!-- Type Selector -->
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">類型</label>
+                        <div id="type-selector" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                            ${typeOptions.map(t => `
+                                <button data-type="${t.id}" type="button" class="type-btn px-3 py-1.5 rounded-full text-xs font-medium border flex-shrink-0 transition-colors ${item.type === t.id ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-200'}">
+                                    ${t.name}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Descriptions -->
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">詳細內容</label>
+                        <textarea id="edit-description-input" class="w-full bg-slate-50 border rounded-lg p-2 text-sm h-20" placeholder="行程備註...">${item.description}</textarea>
+                    </div>
+
+                    <!-- Guide Tips Section -->
+                    <div>
+                        <label class="text-xs text-yellow-600 font-bold block mb-1 flex items-center gap-1">${iconSVG('Info', 12)} 導遊筆記</label>
+                        <textarea id="edit-tips-input" class="w-full bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-sm h-20 placeholder-yellow-800/30" placeholder="輸入景點故事、攻略、注意事項...">${item.guideTips || ''}</textarea>
+                    </div>
+
+                    <!-- Expense Tracker -->
+                    <div id="expense-tracker" class="bg-white rounded-lg p-3 border border-slate-200 shadow-inner">
+                        <h4 class="text-sm font-bold text-slate-600 mb-2 flex items-center gap-2">
+                            ${iconSVG('Calculator', 14)} 記帳小幫手
+                        </h4>
+                        <div id="expense-list" class="space-y-2 mb-3 max-h-32 overflow-y-auto">
+                            ${expensesHtml || '<div class="text-xs text-slate-400 italic">尚未新增消費項目</div>'}
+                        </div>
+                        
+                        <div class="flex gap-2 mb-2">
+                            <input id="new-expense-item" type="text" placeholder="項目 (如: 午餐)" class="flex-1 text-xs p-1.5 border rounded"/>
+                            <input id="new-expense-cost" type="number" placeholder="金額" class="w-20 text-xs p-1.5 border rounded"/>
+                            <button id="add-expense-btn" type="button" class="bg-blue-500 text-white p-1.5 rounded hover:bg-blue-600">${iconSVG('Plus', 14)}</button>
+                        </div>
+                        <div class="text-right font-bold text-slate-700 text-sm">
+                            總計: ¥${total.toLocaleString()}
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="p-4 border-t bg-slate-50 flex justify-between items-center flex-none">
+                    <button id="modal-delete-btn" type="button" class="px-4 py-2 rounded-lg text-sm flex items-center gap-1 transition-all ${state.deleteConfirmId === item.id ? 'bg-red-600 text-white' : 'text-red-500 hover:bg-red-100'}">
+                        ${iconSVG('Trash2', 16)} ${state.deleteConfirmId === item.id ? '確定刪除?' : '刪除'}
+                    </button>
+                    <button id="modal-save-btn" type="button" class="bg-[#6b8c72] text-white px-8 py-2.5 rounded-lg font-bold shadow hover:bg-[#5a7660] active:scale-95 transition-all">
+                        儲存
+                    </button>
+                </div>
+            `;
+            
+            // --- Attach Modal Event Listeners ---
+            
+            const updateEditState = (key, value) => {
+                state.editItem[key] = value;
+            };
+
+            document.getElementById('edit-day-input').onchange = (e) => updateEditState('day', parseInt(e.target.value));
+            document.getElementById('edit-time-input').onchange = (e) => updateEditState('time', e.target.value);
+            document.getElementById('edit-endtime-input').onchange = (e) => updateEditState('endTime', e.target.value);
+            document.getElementById('edit-title-input').onchange = (e) => updateEditState('title', e.target.value);
+            document.getElementById('edit-location-input').onchange = (e) => updateEditState('location', e.target.value);
+            document.getElementById('edit-description-input').onchange = (e) => updateEditState('description', e.target.value);
+            document.getElementById('edit-tips-input').onchange = (e) => updateEditState('guideTips', e.target.value);
+
+            // Type selector
+            modalContent.querySelectorAll('.type-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const newType = e.currentTarget.dataset.type;
+                    state.editItem.type = newType;
+                    renderEditModal(); 
+                };
+            });
+
+            // Expense handlers
+            const updateExpenses = (newExpenses) => {
+                state.editItem.expenses = newExpenses;
+                renderEditModal(); 
+            };
+
+            document.getElementById('add-expense-btn').onclick = () => {
+                const newItem = document.getElementById('new-expense-item').value.trim();
+                const newCost = parseInt(document.getElementById('new-expense-cost').value);
+                if (newItem && !isNaN(newCost) && newCost > 0) {
+                    const newExpenses = [...(state.editItem.expenses || []), { item: newItem, cost: newCost }];
+                    updateExpenses(newExpenses);
+                }
+            };
+            
+            document.querySelectorAll('.remove-expense-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const itemElement = e.currentTarget.closest('.expense-item');
+                    const idx = parseInt(itemElement.dataset.idx);
+                    const newExpenses = state.editItem.expenses.filter((_, i) => i !== idx);
+                    updateExpenses(newExpenses);
+                };
+            });
+            
+            document.getElementById('modal-close-btn').onclick = () => {
+                state.editItem = null;
+                render();
+            };
+            document.getElementById('modal-save-btn').onclick = () => {
+                updateItem(state.editItem);
+            };
+            document.getElementById('modal-nav-btn').onclick = () => {
+                openNavigation(document.getElementById('edit-location-input').value);
+            };
+
+            document.getElementById('modal-delete-btn').onclick = () => {
+                if (state.deleteConfirmId === item.id) {
+                    deleteItem(item.id);
+                } else {
+                    state.deleteConfirmId = item.id;
+                    renderEditModal(); 
+                }
+            };
+
+        };
+
+        // --- Main Render Loop ---
+        const render = () => {
+            if (state.view === 'home') {
+                renderHome();
+                editModal.classList.add('hidden');
+            } else {
+                renderApp();
+                if (state.editItem) {
+                    renderEditModal();
+                } else {
+                    editModal.classList.add('hidden');
+                }
+            }
+        };
+
+        // --- Init ---
+        loadData();
+        render();
+
+    </script>
+</body>
+</html>
